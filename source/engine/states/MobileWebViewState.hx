@@ -18,6 +18,7 @@ import sys.io.File;
 import sys.FileSystem;
 import flixel.addons.display.FlxTypedGroup;
 import backend.Funkin;
+import backend.CoolUtil;
 
 class MobileWebViewState extends MusicBeatState
 {
