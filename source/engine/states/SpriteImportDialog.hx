@@ -14,13 +14,13 @@ import flixel.text.FlxText;
 import flixel.ui.FlxButton;
 import flixel.tweens.FlxTween;
 import flixel.graphics.FlxGraphic;
-import openfl.display.BitmapData;
+import flixel.input.touch.FlxTouch;
 import flixel.tweens.FlxEase;
 import flixel.addons.display.FlxTypedGroup;
 import flixel.util.FlxTimer;
 import backend.Funkin;
 import backend.Mods;
-import flixel.graphics.FlxGraphic;
+import openfl.display.BitmapData;
 
 class SpriteImportDialog extends MusicBeatState
 {
@@ -53,6 +53,9 @@ class SpriteImportDialog extends MusicBeatState
     static inline var COLOR_TEXT_DIM:Int = 0xFFB0B0C0;
     static inline var COLOR_WARNING:Int = 0xFFFFAA00;
     static inline var COLOR_SUCCESS:Int = 0xFF00FF88;
+    
+    // Extensiones válidas para sprites
+    static inline var VALID_EXTENSIONS:Array<String> = [".png", ".gif", ".jpg", ".jpeg", ".bmp", ".webp"];
     
     // Estado de validación
     var fileExists:Bool = false;
@@ -266,7 +269,12 @@ class SpriteImportDialog extends MusicBeatState
         statusText.setFormat("VCR OSD Mono", 12, COLOR_SUCCESS);
         
         if (!isValidName) {
-            statusText.text = "✗ Caracteres no válidos (evita: / \\ : * ? \" < > |)";
+            var extError = getExtensionError(nameInput);
+            if (extError.length > 0) {
+                statusText.text = "✗ " + extError;
+            } else {
+                statusText.text = "✗ Caracteres no válidos (evita: / \\ : * ? \" < > |)";
+            }
             statusText.color = COLOR_WARNING;
         } else if (fileExists) {
             statusText.text = "⚠ Ya existe - se sobrescribirá";
@@ -290,7 +298,28 @@ class SpriteImportDialog extends MusicBeatState
         if (name.indexOf("<") != -1) return false;
         if (name.indexOf(">") != -1) return false;
         if (name.indexOf("|") != -1) return false;
+        
+        // Validar extensión de imagen
+        var ext = "";
+        if (name.indexOf(".") > 0) {
+            ext = name.substring(name.lastIndexOf(".")).toLowerCase();
+        }
+        if (ext.length > 0 && !VALID_EXTENSIONS.contains(ext)) {
+            return false;
+        }
+        
         return true;
+    }
+    
+    function getExtensionError(name:String):String
+    {
+        if (name.indexOf(".") > 0) {
+            var ext = name.substring(name.lastIndexOf(".")).toLowerCase();
+            if (!VALID_EXTENSIONS.contains(ext)) {
+                return "Extensión '$ext' no válida. Usa: .png, .jpg, .gif, .bmp";
+            }
+        }
+        return "";
     }
     
     function generateValidFilename(original:String):String
@@ -584,34 +613,17 @@ class SpriteImportDialog extends MusicBeatState
         
         // Detectar clicks en botones
         if (FlxG.mouse.justPressed) {
-            var x = FlxG.mouse.x;
-            var y = FlxG.mouse.y;
-            
-            var btnY:Float = FlxG.height - 120;
-            
-            // Botón cancelar
-            if (x >= 50 && x <= 190 && y >= btnY && y <= btnY + 45) {
-                onButtonClick(1);
-            }
-            // Botón renombrar
-            if (x >= 205 && x <= 345 && y >= btnY && y <= btnY + 45) {
-                onButtonClick(2);
-            }
-            // Botón guardar
-            if (x >= FlxG.width - 190 && x <= FlxG.width - 50 && y >= btnY && y <= btnY + 45) {
-                onButtonClick(3);
-            }
-            
-            // Carpetas
-            for (i in 0...availableFolders.length) {
-                var folderY = 240 + (i * 40);
-                if (x >= 230 && x <= FlxG.width - 70 && y >= folderY && y <= folderY + 35) {
-                    selectedFolderIndex = i;
-                    updateFolderSelection();
-                    updateValidationStatus();
-                }
+            handlePointerClick(FlxG.mouse.x, FlxG.mouse.y);
+        }
+        
+        // Soporte táctil
+        #if mobile
+        for (touch in FlxG.touches.list) {
+            if (touch.justPressed) {
+                handlePointerClick(touch.x, touch.y);
             }
         }
+        #end
         
         // Teclado para nombre
         handleKeyboardInput();
@@ -624,6 +636,40 @@ class SpriteImportDialog extends MusicBeatState
         // Escape para cancelar
         if (FlxG.keys.justPressed.ESCAPE) {
             onButtonClick(1);
+        }
+    }
+    
+    function handlePointerClick(x:Float, y:Float):Void
+    {
+        var btnY:Float = FlxG.height - 120;
+        
+        // Botón cancelar
+        if (x >= 50 && x <= 190 && y >= btnY && y <= btnY + 45) {
+            onButtonClick(1);
+            return;
+        }
+        
+        // Botón renombrar
+        if (x >= 205 && x <= 345 && y >= btnY && y <= btnY + 45) {
+            onButtonClick(2);
+            return;
+        }
+        
+        // Botón guardar
+        if (x >= FlxG.width - 190 && x <= FlxG.width - 50 && y >= btnY && y <= btnY + 45) {
+            onButtonClick(3);
+            return;
+        }
+        
+        // Carpetas
+        for (i in 0...availableFolders.length) {
+            var folderY = 240 + (i * 40);
+            if (x >= 230 && x <= FlxG.width - 70 && y >= folderY && y <= folderY + 35) {
+                selectedFolderIndex = i;
+                updateFolderSelection();
+                updateValidationStatus();
+                return;
+            }
         }
     }
     
