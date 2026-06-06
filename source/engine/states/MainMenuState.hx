@@ -23,6 +23,16 @@ class MainMenuState extends MusicBeatState
 	#else
 	static var webViewAvailable:Bool = false;
 	#end
+	
+	// Función helper para obtener el estado correcto según plataforma
+	static function getWebViewState():Class<FlxState>
+	{
+		#if mobile
+		return MobileWebViewState;
+		#else
+		return WebViewState;
+		#end
+	}
 
 	var magenta:FlxSprite;
 	var camFollow:FlxObject;
@@ -170,7 +180,8 @@ class MainMenuState extends MusicBeatState
 							}
 						case 'web':
 							if (webViewAvailable) {
-								Funkin.switchState(WebViewState);
+								var webState:Class<FlxState> = getWebViewState();
+								Funkin.switchState(webState);
 							} else {
 								// En HTML5, abrir en navegador externo
 								CoolUtil.browserLoad(WebViewState.targetURL);

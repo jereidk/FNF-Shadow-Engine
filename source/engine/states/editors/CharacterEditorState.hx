@@ -8,6 +8,12 @@ import flixel.FlxCamera;
 import objects.Character;
 import objects.HealthIcon;
 import objects.Bar;
+import haxe.Json;
+import haxe.io.Bytes;
+#if mobile
+import sys.io.File;
+import sys.FileSystem;
+#end
 
 class CharacterEditorState extends MusicBeatState
 {
@@ -50,6 +56,11 @@ class CharacterEditorState extends MusicBeatState
 	var UI_healthColorRect:FlxSprite;
 	var UI_help:ShadowPanel;
 	var UI_helpOverlay:FlxSprite;
+	
+	// Descargas pendientes del WebView (mobile)
+	var pendingDownloads:Array<Dynamic> = [];
+	var hasPendingImports:Bool = false;
+	var importNoticeText:FlxText;
 
 	public function new(char:String = null, goToPlayState:Bool = true)
 	{
@@ -66,6 +77,12 @@ class CharacterEditorState extends MusicBeatState
 		Paths.clearStoredMemory();
 
 		FlxG.sound.music.stop();
+		
+		// Verificar descargas pendientes del WebView (mobile)
+		#if mobile
+		checkPendingWebViewDownloads();
+		#end
+		
 		camEditor = initPsychCamera();
 
 		camHUD = new ShadowCamera();
@@ -103,6 +120,11 @@ class CharacterEditorState extends MusicBeatState
 		add(ghost);
 
 		addCharacter();
+		
+		// Mostrar notice de imports pendientes (mobile)
+		#if mobile
+		showImportNotice();
+		#end
 
 		cameraFollowPointer = new FlxSprite().loadGraphic(Paths.image('ui/cursorCross'));
 		cameraFollowPointer.setGraphicSize(40, 40);
@@ -1118,6 +1140,21 @@ class CharacterEditorState extends MusicBeatState
 			}
 			return;
 		}
+		
+		// Detectar clic en el notice de imports (mobile)
+		#if mobile
+		if (hasPendingImports && importNoticeText != null && FlxG.mouse.justPressed)
+		{
+			var mouseX:Float = FlxG.mouse.x;
+			var mouseY:Float = FlxG.mouse.y;
+			
+			if (mouseX >= importNoticeText.x && mouseX <= importNoticeText.x + importNoticeText.width &&
+				mouseY >= importNoticeText.y && mouseY <= importNoticeText.y + importNoticeText.height)
+			{
+				importPendingDownload();
+			}
+		}
+		#end
 
 		if ((animationInputText != null && animationInputText.hasFocus())
 			|| (animationNameInputText != null && animationNameInputText.hasFocus())
@@ -1669,6 +1706,158 @@ class CharacterEditorState extends MusicBeatState
 		FlxG.log.error("Problem saving file");
 	}
 
+	// ============== WEBVIEW DOWNLOAD INTEGRATION (MOBILE) ==============
+	#if mobile
+	function checkPendingWebViewDownloads():Void
+	{
+		var pendingFile:String = "downloads/pending_imports.json";
+		try {
+			if (FileSystem.exists(pendingFile)) {
+				var content:String = File.getContent(pendingFile);
+				pendingDownloads = Json.parse(content);
+				
+				// Filtrar solo los no importados
+				var notImported:Array<Dynamic> = [];
+				for (dl in pendingDownloads) {
+					if (!dl.imported) {
+						notImported.push(dl);
+					}
+				}
+				pendingDownloads = notImported;
+				
+				if (pendingDownloads.length > 0) {
+					hasPendingImports = true;
+					trace('Encontradas ' + pendingDownloads.length + ' descargas pendientes para importar');
+				}
+			}
+		} catch(e:Dynamic) {
+			trace('Error verificando descargas pendientes: $e');
+		}
+	}
+	
+	function showImportNotice():Void
+	{
+		if (!hasPendingImports) return;
+		
+		importNoticeText = new FlxText(20, FlxG.height - 80, FlxG.width - 40, 
+			"📥 Tienes " + pendingDownloads.length + " archivo(s) descargado(s)\nPresiona aquí para importar", 16);
+		importNoticeText.setFormat("VCR OSD Mono", 16, 0xFF00F5FF, CENTER);
+		importNoticeText.alpha = 0.8;
+		
+		// Hacer clickeable
+		importNoticeText.alpha = 1;
+		importNoticeText.underline = true;
+		
+		add(importNoticeText);
+		
+		// Animación de entrada
+		importNoticeText.y = FlxG.height;
+		FlxTween.tween(importNoticeText, {y: FlxG.height - 80}, 0.5, {ease: FlxEase.quartOut});
+	}
+	
+	function importPendingDownload(index:Int = 0):Void
+	{
+		if (index >= pendingDownloads.length) {
+			// Terminar de importar
+			if (importNoticeText != null) {
+				FlxTween.tween(importNoticeText, {alpha: 0}, 0.3, {
+					onComplete: function(_) {
+						remove(importNoticeText);
+						importNoticeText = null;
+					}
+				});
+			}
+			hasPendingImports = false;
+			clearImportedDownloads();
+			return;
+		}
+		
+		var download:Dynamic = pendingDownloads[index];
+		var sourcePath:String = download.path;
+		var filename:String = download.filename;
+		
+		// Copiar archivo a la carpeta de sprites del mod
+		var targetDir:String = "mods/" + Mods.currentModDirectory + "/images/characters/";
+		var targetPath:String = targetDir + filename;
+		
+		try {
+			if (!FileSystem.exists(targetDir)) {
+				FileSystem.createDirectory(targetDir);
+			}
+			
+			if (FileSystem.exists(sourcePath)) {
+				var content:Bytes = File.getBytes(sourcePath);
+				File.saveBytes(targetPath, content);
+				
+				// Marcar como importado
+				download.imported = true;
+				
+				// Actualizar el archivo de pendientes
+				savePendingImports();
+				
+				trace('Importado: $filename');
+				
+				// Actualizar la ruta de imagen del personaje
+				var imagePath:String = "characters/" + filename.substring(0, filename.lastIndexOf('.'));
+				character.imageFile = imagePath;
+				character.imageFiles = [imagePath];
+				updateCharacterImage();
+				
+				// Mostrar feedback
+				showImportFeedback(filename);
+				
+				// Continuar con el siguiente
+				importPendingDownload(index + 1);
+			} else {
+				trace('Archivo no encontrado: $sourcePath');
+				importPendingDownload(index + 1);
+			}
+		} catch(e:Dynamic) {
+			trace('Error importando archivo: $e');
+			importPendingDownload(index + 1);
+		}
+	}
+	
+	function savePendingImports():Void
+	{
+		try {
+			var content:String = Json.stringify(pendingDownloads);
+			File.saveContent("downloads/pending_imports.json", content);
+		} catch(e:Dynamic) {
+			trace('Error guardando estado de imports: $e');
+		}
+	}
+	
+	function clearImportedDownloads():Void
+	{
+		try {
+			pendingDownloads = [];
+			if (FileSystem.exists("downloads/pending_imports.json")) {
+				FileSystem.deleteFile("downloads/pending_imports.json");
+			}
+		} catch(e:Dynamic) {}
+	}
+	
+	function showImportFeedback(filename:String):Void
+	{
+		var feedback:FlxText = new FlxText(0, 0, FlxG.width, "✓ Importado: $filename", 18);
+		feedback.setFormat("VCR OSD Mono", 18, 0xFF00FF88, CENTER);
+		feedback.y = 100;
+		feedback.alpha = 0;
+		add(feedback);
+		
+		FlxTween.tween(feedback, {alpha: 1, y: 130}, 0.3, {ease: FlxEase.quartOut, onComplete: function(_) {
+			FlxTimer.globalTimer.add(1.5, function(tmr:FlxTimer) {
+				FlxTween.tween(feedback, {alpha: 0}, 0.3, {
+					onComplete: function(_) {
+						remove(feedback);
+					}
+				});
+			});
+		}});
+	}
+	#end
+	
 	function saveCharacter()
 	{
 		if (_file != null)
