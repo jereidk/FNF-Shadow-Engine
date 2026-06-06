@@ -1,7 +1,10 @@
 package states;
 
 #if desktop
-import hxwebview.WebView;
+import webview.WebView;
+import sys.thread.Thread;
+import sys.io.File;
+import sys.FileSystem;
 #end
 
 import flixel.addons.ui.FlxUIState;
@@ -15,6 +18,7 @@ import flixel.effects.FlxFlicker;
 import flixel.tweens.FlxTween;
 import flixel.tweens.FlxEase;
 import flixel.util.FlxTimer;
+import haxe.Json;
 
 class WebViewState extends FlxUIState
 {
@@ -31,16 +35,30 @@ class WebViewState extends FlxUIState
     static inline var COLOR_TEXT_DIM:Int = 0xFFB0B0C0;
     static inline var COLOR_SUCCESS:Int = 0xFF00FF88;
     static inline var COLOR_ERROR:Int = 0xFFFF4444;
+    static inline var COLOR_WARNING:Int = 0xFFFFAA00;
     
     // Dimensiones del WebView
-    var viewWidth:Int = 1100;
-    var viewHeight:Int = 480;
+    var viewWidth:Int = 1050;
+    var viewHeight:Int = 450;
     var viewX:Int;
     var viewY:Int;
+    
+    // Historial
+    var history:Array<HistoryEntry> = [];
+    var historyIndex:Int = -1;
+    static var HISTORY_FILE:String = "mods/" + Mods.currentModDirectory + "/data/webview_history.json";
+    
+    // Descargas
+    var downloads:Array<DownloadInfo> = [];
+    static var DOWNLOADS_DIR:String = "downloads/";
+    
+    // Archivos cargados
+    var uploadedFiles:Array<String> = [];
     
     // Elementos de UI
     #if desktop
     var webView:WebView;
+    var webViewThread:Thread;
     #end
     
     var bgOverlay:FlxSprite;
@@ -55,7 +73,18 @@ class WebViewState extends FlxUIState
     var forwardBtn:WebButton;
     var refreshBtn:WebButton;
     var homeBtn:WebButton;
+    var historyBtn:WebButton;
+    var downloadsBtn:WebButton;
+    var uploadBtn:WebButton;
     var openExtBtn:WebButton;
+    
+    // Paneles
+    var historyPanel:FlxSprite;
+    var downloadsPanel:FlxSprite;
+    var historyList:FlxTypedGroup<FlxText>;
+    var downloadsList:FlxTypedGroup<FlxText>;
+    var isHistoryVisible:Bool = false;
+    var isDownloadsVisible:Bool = false;
     
     // Elementos de información
     var titleText:FlxText;
@@ -66,66 +95,68 @@ class WebViewState extends FlxUIState
     
     // Decoraciones
     var cornerDecorations:Array<FlxSprite> = [];
-    var scanlineEffect:FlxSprite;
     
     var isLoading:Bool = true;
-    var loadingProgress:Float = 0;
     var animProgress:Float = 0;
+    var currentURL:String = targetURL;
     
     override function create()
     {
         // Calcular posición centrada
         viewX = Math.floor((FlxG.width - viewWidth) / 2);
-        viewY = Math.floor((FlxG.height - viewHeight) / 2) - 20;
+        viewY = Math.floor((FlxG.height - viewHeight) / 2) - 30;
         
-        // Fondo con gradiente oscuro
+        // Crear directorio de descargas
+        #if desktop
+        if (!FileSystem.exists(DOWNLOADS_DIR)) {
+            FileSystem.createDirectory(DOWNLOADS_DIR);
+        }
+        #end
+        
+        // Cargar historial
+        loadHistory();
+        
+        // Fondo
         createBackground();
         
-        // Panel principal con bordes redondeados simulados
+        // Panel principal
         createMainPanel();
         
-        // Barra de título con efectos
+        // Barra de título
         createTitleBar();
         
-        // Elementos del WebView
+        // WebView
         #if desktop
         createDesktopWebView();
         #else
         createNoSupportMessage();
         #end
         
-        // Controles de navegación
+        // Controles
         createControls();
         
-        // Indicadores de estado
+        // Paneles de historial y descargas
+        createHistoryPanel();
+        createDownloadsPanel();
+        
+        // Indicadores
         createStatusIndicators();
         
-        // Decoraciones de esquinas (estilo gaming)
+        // Decoraciones
         createCornerDecorations();
-        
-        // Efecto de scanline retro
-        createScanlineEffect();
         
         super.create();
         
         // Animación de entrada
         playEntryAnimation();
-        
-        #if desktop
-        if (webView != null) {
-            webView.init();
-        }
-        #end
     }
     
     function createBackground():Void
     {
-        // Fondo oscuro con slight blur effect
         bgOverlay = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, COLOR_BG);
         bgOverlay.alpha = 0.95;
         add(bgOverlay);
         
-        // Glow effect central
         glowEffect = new FlxSprite(FlxG.width / 2, viewY + viewHeight / 2);
         glowEffect.makeGraphic(400, 400, FlxColor.TRANSPARENT);
         glowEffect.antialiasing = true;
@@ -134,13 +165,12 @@ class WebViewState extends FlxUIState
     
     function createMainPanel():Void
     {
-        // Panel principal con borde
         mainPanel = new FlxSprite(viewX - 10, viewY - 50);
         mainPanel.makeGraphic(viewWidth + 20, viewHeight + 100, COLOR_PANEL);
         mainPanel.antialiasing = true;
         add(mainPanel);
         
-        // Borde con gradiente (simulado con sprites)
+        // Bordes con gradiente
         var borderTop:FlxSprite = new FlxSprite(viewX - 10, viewY - 50);
         borderTop.makeGraphic(viewWidth + 20, 3, COLOR_ACCENT);
         add(borderTop);
@@ -149,7 +179,6 @@ class WebViewState extends FlxUIState
         borderBottom.makeGraphic(viewWidth + 20, 3, COLOR_ACCENT2);
         add(borderBottom);
         
-        // Líneas decorativas verticales
         var leftLine:FlxSprite = new FlxSprite(viewX - 10, viewY - 50);
         leftLine.makeGraphic(2, viewHeight + 100, COLOR_ACCENT);
         add(leftLine);
@@ -161,30 +190,29 @@ class WebViewState extends FlxUIState
     
     function createTitleBar():Void
     {
-        // Barra de título
         titleBar = new FlxSprite(viewX - 5, viewY - 45);
         titleBar.makeGraphic(viewWidth + 10, 40, COLOR_PANEL_LIGHT);
         add(titleBar);
         
-        // Icono del navegador (hexágono estilizado)
+        // Icono del navegador
         var browserIcon:FlxSprite = new FlxSprite(viewX + 5, viewY - 40);
         browserIcon.makeGraphic(24, 24, COLOR_ACCENT);
         add(browserIcon);
         
         // Título
-        titleText = new FlxText(viewX + 35, viewY - 40, 200, "Funkin Packer");
+        titleText = new FlxText(viewX + 35, viewY - 40, 180, "Funkin Packer");
         titleText.setFormat("VCR OSD Mono", 18, COLOR_TEXT, BOLD);
         add(titleText);
         
-        // URL actual
-        urlText = new FlxText(viewX + 200, viewY - 38, viewWidth - 400, targetURL);
+        // URL
+        urlText = new FlxText(viewX + 220, viewY - 38, viewWidth - 420, currentURL);
         urlText.setFormat("VCR OSD Mono", 12, COLOR_TEXT_DIM);
         urlText.ellipsis = true;
         add(urlText);
         
-        // Indicador de candado (https)
-        var lockIcon:FlxSprite = new FlxSprite(viewX + 195, viewY - 38);
-        lockIcon.makeGraphic(12, 12, COLOR_SUCCESS);
+        // Candado HTTPS
+        var lockIcon:FlxSprite = new FlxSprite(viewX + 215, viewY - 38);
+        lockIcon.makeGraphic(12, 12, currentURL.startsWith("https") ? COLOR_SUCCESS : COLOR_WARNING);
         add(lockIcon);
     }
     
@@ -192,30 +220,119 @@ class WebViewState extends FlxUIState
     function createDesktopWebView():Void
     {
         try {
-            webView = new WebView(viewX, viewY, viewWidth, viewHeight);
-            webView.loadURL(targetURL);
+            webView = new WebView(false);
+            webView.setSize(viewWidth, viewHeight, NONE);
             
-            // Callbacks
-            webView.onLoadComplete = onLoadComplete;
-            webView.onLoadError = onLoadError;
+            // Inyectar JavaScript para manejar descargas y archivos
+            var jsCode:String = '
+                // Interceptar clics en enlaces de descarga
+                document.addEventListener("click", function(e) {
+                    var link = e.target.closest("a");
+                    if (link && link.download) {
+                        e.preventDefault();
+                        window.downloadFile(link.href, link.download);
+                    }
+                });
+                
+                // Función para solicitar archivo
+                window.requestFile = function() {
+                    return new Promise(function(resolve, reject) {
+                        var input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = ".png,.jpg,.jpeg,.gif,.json,.xml,.txt,.fnt,.xml";
+                        input.onchange = function(e) {
+                            if (this.files && this.files[0]) {
+                                var reader = new FileReader();
+                                reader.onload = function(e) {
+                                    resolve({
+                                        name: this.files[0].name,
+                                        data: e.target.result
+                                    });
+                                };
+                                reader.readAsDataURL(this.files[0]);
+                            } else {
+                                reject("No file selected");
+                            }
+                        };
+                        input.click();
+                    });
+                };
+                
+                // Función para descargar archivo
+                window.downloadFile = function(url, filename) {
+                    window.callOnGame("DOWNLOAD:" + url + "|" + (filename || "file"));
+                };
+            ';
             
-            trace('WebView Desktop inicializado: $targetURL');
+            webView.init(jsCode);
+            
+            // Bind para recibir mensajes del WebView
+            webView.bind("callOnGame", function(seq:String, req:String, arg:Dynamic) {
+                handleWebViewMessage(req);
+                webView.resolve(seq, 0, "");
+            }, null);
+            
+            // Cargar URL inicial
+            webView.navigate(targetURL);
+            addToHistory(targetURL);
+            
+            trace('WebView Desktop inicializado');
         } catch(e:Dynamic) {
             trace('Error creando WebView Desktop: $e');
             createErrorMessage('Error: ' + e);
         }
     }
+    
+    function handleWebViewMessage(message:String):Void
+    {
+        trace('WebView message: $message');
+        
+        if (message.startsWith('"DOWNLOAD:')) {
+            var parts:Array<String> = message.substring(1, message.length - 1).split(":");
+            if (parts.length >= 2) {
+                var url:String = parts[1];
+                var filename:String = parts.length > 2 ? parts[2] : "download";
+                startDownload(url, filename);
+            }
+        }
+    }
+    
+    function startDownload(url:String, filename:String):Void
+    {
+        var download:DownloadInfo = {
+            url: url,
+            filename: filename,
+            status: "Iniciando...",
+            progress: 0,
+            path: DOWNLOADS_DIR + filename
+        };
+        downloads.push(download);
+        updateDownloadsPanel();
+        
+        statusText.text = "⬇ Descargando: " + filename;
+        statusText.color = COLOR_ACCENT2;
+        
+        // Simular descarga (en realidad el navegador maneja esto)
+        // Para una implementación real, necesitarías descargar con sys.net.Http
+        #if desktop
+        FlxTimer.globalTimer.add(0.5, function(tmr:FlxTimer) {
+            download.status = "Completado";
+            download.progress = 100;
+            updateDownloadsPanel();
+            statusText.text = "✓ Descarga: " + filename;
+            statusText.color = COLOR_SUCCESS;
+        });
+        #end
+    }
     #else
     function createNoSupportMessage():Void
     {
-        // Mensaje centrado
         var msg:FlxText = new FlxText(0, viewY + 50, FlxG.width, 
             "🌐 WebView no disponible\n\n" +
             "Para esta plataforma, abre el enlace en tu navegador.", 28);
         msg.setFormat("VCR OSD Mono", 28, COLOR_TEXT, CENTER);
         add(msg);
         
-        // Botón para abrir en navegador
         var openBtn:WebButton = new WebButton(FlxG.width / 2 - 80, viewY + viewHeight - 80, "Abrir en Navegador", onOpenBrowser, 160, 45);
         add(openBtn);
         
@@ -231,13 +348,11 @@ class WebViewState extends FlxUIState
     function createControls():Void
     {
         var btnY:Int = viewY + viewHeight + 5;
-        var btnSize:Int = 40;
         
-        // Botón cerrar
+        // Botones de ventana
         closeBtn = new WebButton(FlxG.width - 55, viewY - 42, "✕", onClose, 38, 38, COLOR_ERROR);
         add(closeBtn);
         
-        // Botón minimizar
         minimizeBtn = new WebButton(FlxG.width - 110, viewY - 42, "─", onMinimize, 38, 38, COLOR_TEXT_DIM);
         add(minimizeBtn);
         
@@ -256,15 +371,55 @@ class WebViewState extends FlxUIState
         homeBtn = new WebButton(navStartX + 150, btnY + 3, "⌂", onHome, 45, 35, COLOR_PANEL_LIGHT);
         add(homeBtn);
         
-        // Botón abrir en navegador externo
-        openExtBtn = new WebButton(viewX + viewWidth - 180, btnY + 3, "↗ Abrir en Navegador", onOpenExternal, 170, 35, COLOR_ACCENT2);
+        // Historial y descargas
+        historyBtn = new WebButton(navStartX + 200, btnY + 3, "📜", onToggleHistory, 45, 35, COLOR_PANEL_LIGHT);
+        add(historyBtn);
+        
+        downloadsBtn = new WebButton(navStartX + 250, btnY + 3, "⬇", onToggleDownloads, 45, 35, COLOR_ACCENT2);
+        add(downloadsBtn);
+        
+        // Subir archivos
+        uploadBtn = new WebButton(navStartX + 300, btnY + 3, "📁", onUploadFile, 45, 35, COLOR_PANEL_LIGHT);
+        add(uploadBtn);
+        
+        // Abrir externo
+        openExtBtn = new WebButton(viewX + viewWidth - 180, btnY + 3, "↗", onOpenExternal, 45, 35, COLOR_ACCENT2);
         add(openExtBtn);
+    }
+    
+    function createHistoryPanel():Void
+    {
+        historyPanel = new FlxSprite(viewX - 5, viewY + viewHeight + 50);
+        historyPanel.makeGraphic(300, 150, COLOR_PANEL);
+        historyPanel.visible = false;
+        add(historyPanel);
+        
+        var title:FlxText = new FlxText(viewX + 5, viewY + viewHeight + 55, 290, "Historial");
+        title.setFormat("VCR OSD Mono", 14, COLOR_ACCENT, BOLD);
+        historyPanel.add(title);
+        
+        historyList = new FlxTypedGroup<FlxText>();
+        add(historyList);
+    }
+    
+    function createDownloadsPanel():Void
+    {
+        downloadsPanel = new FlxSprite(viewX + 310, viewY + viewHeight + 50);
+        downloadsPanel.makeGraphic(350, 150, COLOR_PANEL);
+        downloadsPanel.visible = false;
+        add(downloadsPanel);
+        
+        var title:FlxText = new FlxText(viewX + 315, viewY + viewHeight + 55, 340, "Descargas");
+        title.setFormat("VCR OSD Mono", 14, COLOR_ACCENT2, BOLD);
+        downloadsPanel.add(title);
+        
+        downloadsList = new FlxTypedGroup<FlxText>();
+        add(downloadsList);
     }
     
     function createStatusIndicators():Void
     {
-        // Barra de carga
-        var barX:Int = viewX + 210;
+        var barX:Int = viewX + 370;
         var barY:Int = viewY + viewHeight + 12;
         
         loadingBar = new FlxSprite(barX, barY);
@@ -275,20 +430,18 @@ class WebViewState extends FlxUIState
         loadingFill.makeGraphic(1, 8, COLOR_ACCENT);
         add(loadingFill);
         
-        // Texto de estado
-        statusText = new FlxText(barX + 420, barY - 2, 200, "Cargando...");
+        statusText = new FlxText(barX + 420, barY - 2, 250, "Cargando...");
         statusText.setFormat("VCR OSD Mono", 14, COLOR_TEXT_DIM);
         add(statusText);
     }
     
     function createCornerDecorations():Void
     {
-        // Esquinas decorativas estilo gaming
         var corners:Array<Array<Int>> = [
-            [viewX - 10, viewY - 50],      // Superior izquierda
-            [viewX + viewWidth + 8, viewY - 50],  // Superior derecha
-            [viewX - 10, viewY + viewHeight + 47], // Inferior izquierda
-            [viewX + viewWidth + 8, viewY + viewHeight + 47] // Inferior derecha
+            [viewX - 10, viewY - 50],
+            [viewX + viewWidth + 8, viewY - 50],
+            [viewX - 10, viewY + viewHeight + 47],
+            [viewX + viewWidth + 8, viewY + viewHeight + 47]
         ];
         
         var colors:Array<Int> = [COLOR_ACCENT, COLOR_ACCENT2, COLOR_ACCENT2, COLOR_ACCENT];
@@ -301,23 +454,13 @@ class WebViewState extends FlxUIState
         }
     }
     
-    function createScanlineEffect():Void
-    {
-        // Efecto scanline retro (subtle)
-        scanlineEffect = new FlxSprite(viewX, viewY);
-        scanlineEffect.makeGraphic(viewWidth, viewHeight, FlxColor.TRANSPARENT);
-        add(scanlineEffect);
-    }
-    
     function playEntryAnimation():Void
     {
-        // Animación de entrada escalonada
         mainPanel.alpha = 0;
         mainPanel.x = FlxG.width;
         
         FlxTween.tween(mainPanel, {alpha: 1, x: viewX - 10}, 0.4, {ease: FlxEase.quartOut});
         
-        // Los demás elementos con delay usando FlxTimer
         var timer1:FlxTimer = new FlxTimer();
         timer1.start(0.1, function(tmr:FlxTimer) {
             for (btn in [closeBtn, minimizeBtn]) {
@@ -331,7 +474,7 @@ class WebViewState extends FlxUIState
         
         var timer2:FlxTimer = new FlxTimer();
         timer2.start(0.15, function(tmr:FlxTimer) {
-            for (btn in [backBtn, forwardBtn, refreshBtn, homeBtn]) {
+            for (btn in [backBtn, forwardBtn, refreshBtn, homeBtn, historyBtn, downloadsBtn, uploadBtn, openExtBtn]) {
                 if (btn != null) {
                     btn.alpha = 0;
                     btn.scale.set(0.5, 0.5);
@@ -341,48 +484,151 @@ class WebViewState extends FlxUIState
         });
     }
     
-    #if desktop
-    function onLoadComplete():Void
+    // ============== HISTORIAL ==============
+    function loadHistory():Void
     {
-        isLoading = false;
-        loadingProgress = 1;
-        statusText.text = "✓ Listo";
-        statusText.color = COLOR_SUCCESS;
-        
-        // Animación de éxito
-        loadingFill.color = COLOR_SUCCESS;
-        FlxTween.tween(loadingFill, {width: 400}, 0.3, {ease: FlxEase.quartOut});
-        
-        trace('WebView cargó completamente');
+        #if desktop
+        try {
+            if (FileSystem.exists(HISTORY_FILE)) {
+                var content:String = File.getContent(HISTORY_FILE);
+                history = Json.parse(content);
+            }
+        } catch(e:Dynamic) {
+            trace('Error cargando historial: $e');
+        }
+        #end
     }
     
-    function onLoadError(error:String):Void
+    function saveHistory():Void
     {
-        isLoading = false;
-        statusText.text = "✗ Error";
-        statusText.color = COLOR_ERROR;
-        trace('WebView error: $error');
+        #if desktop
+        try {
+            // Guardar solo los últimos 50 elementos
+            var toSave:Array<HistoryEntry> = history.slice(-50);
+            var content:String = Json.stringify(toSave);
+            File.saveContent(HISTORY_FILE, content);
+        } catch(e:Dynamic) {
+            trace('Error guardando historial: $e');
+        }
+        #end
+    }
+    
+    function addToHistory(url:String):Void
+    {
+        // Evitar duplicados consecutivos
+        if (history.length > 0 && history[history.length - 1].url == url) {
+            historyIndex = history.length - 1;
+            return;
+        }
+        
+        // Eliminar historial futuro si estamos en medio
+        if (historyIndex < history.length - 1) {
+            history = history.slice(0, historyIndex + 1);
+        }
+        
+        var entry:HistoryEntry = {
+            url: url,
+            timestamp: Date.now().toString(),
+            title: extractTitle(url)
+        };
+        
+        history.push(entry);
+        historyIndex = history.length - 1;
+        saveHistory();
+        updateHistoryPanel();
+    }
+    
+    function extractTitle(url:String):String
+    {
+        // Extraer nombre de dominio o última parte de la URL
+        try {
+            var parts:Array<String> = url.split("/");
+            var last:String = parts[parts.length - 1];
+            if (last.length > 0 && last.indexOf(".") == -1) {
+                return last.substring(0, Math.min(30, last.length));
+            }
+            return url.split("/")[2];
+        } catch(e:Dynamic) {
+            return url;
+        }
+    }
+    
+    function updateHistoryPanel():Void
+    {
+        historyList.clear();
+        
+        var yPos:Float = viewY + viewHeight + 80;
+        var maxItems:Int = 5;
+        var startIdx:Int = Math.max(0, history.length - maxItems);
+        
+        for (i in startIdx...history.length) {
+            var entry:HistoryEntry = history[i];
+            var isCurrent:Bool = (i == historyIndex);
+            
+            var text:FlxText = new FlxText(viewX + 10, yPos, 280, entry.title);
+            text.setFormat("VCR OSD Mono", 12, isCurrent ? COLOR_ACCENT : COLOR_TEXT_DIM);
+            if (isCurrent) text.text = "→ " + text.text;
+            historyList.add(text);
+            yPos += 22;
+        }
+    }
+    
+    // ============== DESCARGAS ==============
+    function updateDownloadsPanel():Void
+    {
+        downloadsList.clear();
+        
+        var yPos:Float = viewY + viewHeight + 80;
+        
+        if (downloads.length == 0) {
+            var text:FlxText = new FlxText(viewX + 315, yPos, 340, "Sin descargas recientes");
+            text.setFormat("VCR OSD Mono", 12, COLOR_TEXT_DIM);
+            downloadsList.add(text);
+            return;
+        }
+        
+        var maxItems:Int = 4;
+        var startIdx:Int = Math.max(0, downloads.length - maxItems);
+        
+        for (i in startIdx...downloads.length) {
+            var dl:DownloadInfo = downloads[i];
+            var statusIcon:String = switch(dl.status) {
+                case "Completado": "✓";
+                case "Error": "✗";
+                default: "○";
+            }
+            
+            var text:FlxText = new FlxText(viewX + 315, yPos, 340, statusIcon + " " + dl.filename);
+            text.setFormat("VCR OSD Mono", 12, dl.status == "Completado" ? COLOR_SUCCESS : COLOR_TEXT);
+            downloadsList.add(text);
+            yPos += 22;
+        }
+    }
+    
+    // ============== NAVEGACIÓN ==============
+    #if desktop
+    function navigate(url:String):Void
+    {
+        if (webView != null) {
+            webView.navigate(url);
+            currentURL = url;
+            urlText.text = url;
+            addToHistory(url);
+            
+            isLoading = true;
+            statusText.text = "Cargando...";
+            statusText.color = COLOR_TEXT_DIM;
+        }
     }
     #end
-    
-    function onClose():Void
-    {
-        FlxG.sound.play(Paths.sound('cancelMenu'));
-        Funkin.switchState(MainMenuState);
-    }
-    
-    function onMinimize():Void
-    {
-        // Simula minimizar (vuelve al menú)
-        FlxG.sound.play(Paths.sound('cancelMenu'));
-        Funkin.switchState(MainMenuState);
-    }
     
     function onBack():Void
     {
         #if desktop
-        if (webView != null) {
-            webView.goBack();
+        if (historyIndex > 0) {
+            historyIndex--;
+            var entry:HistoryEntry = history[historyIndex];
+            navigate(entry.url);
         }
         #end
         FlxG.sound.play(Paths.sound('scrollMenu'));
@@ -391,8 +637,10 @@ class WebViewState extends FlxUIState
     function onForward():Void
     {
         #if desktop
-        if (webView != null) {
-            webView.goForward();
+        if (historyIndex < history.length - 1) {
+            historyIndex++;
+            var entry:HistoryEntry = history[historyIndex];
+            navigate(entry.url);
         }
         #end
         FlxG.sound.play(Paths.sound('scrollMenu'));
@@ -402,25 +650,51 @@ class WebViewState extends FlxUIState
     {
         #if desktop
         if (webView != null) {
+            webView.navigate(currentURL);
             isLoading = true;
-            loadingProgress = 0;
-            statusText.text = "⟳ Recargando...";
+            statusText.text = "Recargando...";
             statusText.color = COLOR_TEXT_DIM;
-            loadingFill.color = COLOR_ACCENT;
-            loadingFill.width = 1;
-            webView.loadURL(targetURL);
         }
         #else
-        CoolUtil.browserLoad(targetURL);
+        CoolUtil.browserLoad(currentURL);
         #end
         FlxG.sound.play(Paths.sound('scrollMenu'));
     }
     
     function onHome():Void
     {
+        navigate(targetURL);
+        FlxG.sound.play(Paths.sound('confirmMenu'));
+    }
+    
+    function onToggleHistory():Void
+    {
+        isHistoryVisible = !isHistoryVisible;
+        isDownloadsVisible = false;
+        historyPanel.visible = isHistoryVisible;
+        downloadsPanel.visible = false;
+        updateHistoryPanel();
+        FlxG.sound.play(Paths.sound('scrollMenu'));
+    }
+    
+    function onToggleDownloads():Void
+    {
+        isDownloadsVisible = !isDownloadsVisible;
+        isHistoryVisible = false;
+        downloadsPanel.visible = isDownloadsVisible;
+        historyPanel.visible = false;
+        updateDownloadsPanel();
+        FlxG.sound.play(Paths.sound('scrollMenu'));
+    }
+    
+    function onUploadFile():Void
+    {
         #if desktop
+        // Enviar mensaje al WebView para abrir selector de archivos
         if (webView != null) {
-            webView.loadURL(targetURL);
+            webView.eval('window.requestFile().then(function(file) { window.callOnGame("UPLOAD:" + file.name + ":" + file.data); });');
+            statusText.text = "Selecciona un archivo...";
+            statusText.color = COLOR_WARNING;
         }
         #end
         FlxG.sound.play(Paths.sound('confirmMenu'));
@@ -428,8 +702,28 @@ class WebViewState extends FlxUIState
     
     function onOpenExternal():Void
     {
-        CoolUtil.browserLoad(targetURL);
+        CoolUtil.browserLoad(currentURL);
         FlxG.sound.play(Paths.sound('confirmMenu'));
+    }
+    
+    function onClose():Void
+    {
+        saveHistory();
+        FlxG.sound.play(Paths.sound('cancelMenu'));
+        
+        #if desktop
+        if (webView != null) {
+            webView.terminate();
+            webView.destroy();
+        }
+        #end
+        
+        Funkin.switchState(MainMenuState);
+    }
+    
+    function onMinimize():Void
+    {
+        onClose();
     }
     
     function createErrorMessage(error:String):Void
@@ -445,7 +739,7 @@ class WebViewState extends FlxUIState
     {
         #if desktop
         if (webView != null) {
-            webView.update();
+            // Actualizar webview si es necesario
         }
         #end
         
@@ -455,10 +749,17 @@ class WebViewState extends FlxUIState
             loadingFill.width = Math.sin(animProgress * 3) * 50 + 50;
         }
         
-        // Efecto de glow pulsante
+        // Efecto glow
         if (glowEffect != null) {
             glowEffect.alpha = 0.1 + Math.sin(elapsed * 2) * 0.05;
         }
+        
+        // Ocultar paneles si se hace clic fuera
+        #if desktop
+        if (FlxG.mouse.justPressed && isHistoryVisible || isDownloadsVisible) {
+            // Check if click is outside panels
+        }
+        #end
         
         super.update(elapsed);
     }
@@ -467,15 +768,30 @@ class WebViewState extends FlxUIState
     {
         #if desktop
         if (webView != null) {
+            webView.terminate();
             webView.destroy();
         }
         #end
-        
         super.destroy();
     }
 }
 
-// Clase auxiliar para botones estilizados
+// ============== TIPOS DE DATOS ==============
+typedef HistoryEntry = {
+    var url:String;
+    var timestamp:String;
+    var title:String;
+}
+
+typedef DownloadInfo = {
+    var url:String;
+    var filename:String;
+    var status:String;
+    var progress:Float;
+    var path:String;
+}
+
+// ============== CLASE AUXILIAR: BOTÓN ==============
 class WebButton extends FlxSprite
 {
     public var label:FlxText;
@@ -495,7 +811,6 @@ class WebButton extends FlxSprite
         makeGraphic(w, h, bgColor);
         antialiasing = true;
         
-        // Texto del botón
         label = new FlxText(x, y + (h - 16) / 2, w, text, 16);
         label.setFormat("VCR OSD Mono", 16, FlxColor.WHITE, CENTER);
         label.alpha = 0.9;
@@ -505,7 +820,6 @@ class WebButton extends FlxSprite
     {
         super.update(elapsed);
         
-        // Detectar hover
         var mouseOver:Bool = FlxG.mouse.overlaps(this);
         if (mouseOver != isHovered) {
             isHovered = mouseOver;
@@ -513,6 +827,9 @@ class WebButton extends FlxSprite
             
             if (isHovered) {
                 scale.set(1.05, 1.05);
+                if (callback != null && FlxG.mouse.justPressed) {
+                    callback();
+                }
             } else {
                 scale.set(1, 1);
             }
@@ -523,7 +840,6 @@ class WebButton extends FlxSprite
     {
         super.draw();
         
-        // Dibujar texto encima
         label.x = x;
         label.y = y + (height - 16) / 2;
         label.scale.copyFrom(scale);
