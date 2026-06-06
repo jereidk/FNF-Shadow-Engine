@@ -8,6 +8,7 @@ import flixel.FlxCamera;
 import objects.Character;
 import objects.HealthIcon;
 import objects.Bar;
+import backend.Mods;
 import haxe.Json;
 import haxe.io.Bytes;
 #if mobile
@@ -1801,7 +1802,7 @@ class CharacterEditorState extends MusicBeatState
 				var imagePath:String = "characters/" + filename.substring(0, filename.lastIndexOf('.'));
 				character.imageFile = imagePath;
 				character.imageFiles = [imagePath];
-				updateCharacterImage();
+				reloadCharacterImage();
 				
 				// Mostrar feedback
 				showImportFeedback(filename);

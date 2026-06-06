@@ -16,6 +16,8 @@ import flixel.util.FlxTimer;
 import haxe.Json;
 import sys.io.File;
 import sys.FileSystem;
+import flixel.addons.display.FlxTypedGroup;
+import backend.Funkin;
 
 class MobileWebViewState extends MusicBeatState
 {
