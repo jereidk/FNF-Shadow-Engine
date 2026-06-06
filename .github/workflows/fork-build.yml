@@ -1,0 +1,144 @@
+name: Build (Fork)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'linux'
+        type: choice
+        options:
+          - linux
+          - windows
+          - android
+          - mac
+
+env:
+  HAXE_VERSION: 4.3.7
+  PROJECT_NAME: ShadowEngine
+
+jobs:
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-22.04
+    if: inputs.platform == 'linux' || github.event.inputs.platform == 'linux'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Haxe
+        uses: shadowmotetch/setup-haxe@v1
+        with:
+          haxe-version: ${{ env.HAXE_VERSION }}
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y clang-22 lld-22 gcc-12 g++-12 libvlc-dev libvlccore-dev
+
+      - name: Install Libraries
+        run: |
+          haxelib git hmm https://github.com/ShadowEngineTeam/hmm --skip-dependencies --quiet
+          haxelib run hmm install --quiet
+
+      - name: Compile (Linux x86_64)
+        run: haxelib run lime build linux -64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linuxBuild-x86_64
+          path: export/release/linux/bin/*
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-2025
+    if: inputs.platform == 'windows' || github.event.inputs.platform == 'windows'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Haxe
+        uses: shadowmotetch/setup-haxe@v1
+        with:
+          haxe-version: ${{ env.HAXE_VERSION }}
+
+      - name: Install Libraries
+        run: |
+          haxelib git hmm https://github.com/ShadowEngineTeam/hmm --skip-dependencies
+          haxelib run hmm install
+
+      - name: Compile (Windows x86_64)
+        run: haxelib run lime build windows -64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windowsBuild-x86_64
+          path: export\release\windows\bin\*
+
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-22.04
+    if: inputs.platform == 'android' || github.event.inputs.platform == 'android'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Haxe
+        uses: shadowmotetch/setup-haxe@v1
+        with:
+          haxe-version: ${{ env.HAXE_VERSION }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Install Libraries
+        run: |
+          haxelib git hmm https://github.com/ShadowEngineTeam/hmm --skip-dependencies
+          haxelib run hmm install
+
+      - name: Compile (Android)
+        run: haxelib run lime build android -ONLY_ARM64
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: androidBuild
+          path: export/release/android/bin/app/build/outputs/apk/release/*.apk
+
+  build-mac:
+    name: Build macOS
+    runs-on: macos-14
+    if: inputs.platform == 'mac' || github.event.inputs.platform == 'mac'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Haxe
+        uses: shadowmotetch/setup-haxe@v1
+        with:
+          haxe-version: ${{ env.HAXE_VERSION }}
+
+      - name: Install Libraries
+        run: |
+          haxelib git hmm https://github.com/ShadowEngineTeam/hmm --skip-dependencies
+          haxelib run hmm install
+
+      - name: Compile (macOS ARM64)
+        run: haxelib run lime build mac -arm64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOSBuild-arm64
+          path: export/release/macos/bin/*
