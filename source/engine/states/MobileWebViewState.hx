@@ -643,7 +643,13 @@ class MobileWebButton extends FlxSprite
                 scale.set(1, 1);
             }
         }
+
+        // Detectar click
+        if (isHovered && FlxG.mouse.justPressed && callback != null) {
+            callback();
+        }
     }
+
     
     override function draw():Void
     {

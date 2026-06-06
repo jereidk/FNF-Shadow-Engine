@@ -13,6 +13,8 @@ import flixel.util.FlxColor;
 import flixel.text.FlxText;
 import flixel.ui.FlxButton;
 import flixel.tweens.FlxTween;
+import flixel.graphics.FlxGraphic;
+import openfl.display.BitmapData;
 import flixel.tweens.FlxEase;
 import flixel.addons.display.FlxTypedGroup;
 import flixel.util.FlxTimer;
@@ -185,9 +187,9 @@ class SpriteImportDialog extends MusicBeatState
         #if mobile
         try {
             if (sourceData != null && sourceData.length > 0) {
-                var bitmapData = flixel.graphics.FlxBitmapData.fromBytes(sourceData);
+                var bitmapData = BitmapData.fromBytes(sourceData);
                 if (bitmapData != null) {
-                    var loadedGraphic = FlxGraphic.fromBitmapData(bitmapData);
+                    var loadedGraphic = FlxGraphic.fromBitmapData(bitmapData, false, null);
                     
                     previewImage = new FlxSprite(x, y);
                     previewImage.loadGraphic(loadedGraphic);
@@ -647,39 +649,46 @@ class SpriteImportDialog extends MusicBeatState
             updateNameField();
             updateValidationStatus();
         }
+
+        // Teclas de letras A-Z
+        var letterKeys:Array<String> = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+            "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"];
         
-        // otras teclas - solo letras, números, guiones, puntos
-        var allowedKeys = [
-            "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "ZERO",
-            "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-            "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-            "MINUS", "PERIOD", "SPACE"
-        ];
-        
-        for (key in allowedKeys) {
-            var keyName = "KEYBOARD_" + key;
-            if (Reflect.hasField(FlxG.keys, keyName) && Reflect.field(FlxG.keys, keyName).justPressed) {
-                var char = key.toLowerCase();
-                if (key == "MINUS") char = "-";
-                if (key == "PERIOD") char = ".";
-                if (key == "SPACE") char = "_";
-                if (key == "ONE") char = "1";
-                if (key == "TWO") char = "2";
-                if (key == "THREE") char = "3";
-                if (key == "FOUR") char = "4";
-                if (key == "FIVE") char = "5";
-                if (key == "SIX") char = "6";
-                if (key == "SEVEN") char = "7";
-                if (key == "EIGHT") char = "8";
-                if (key == "NINE") char = "9";
-                if (key == "ZERO") char = "0";
-                
-                nameInput = nameInput + char;
+        for (key in letterKeys) {
+            if (FlxG.keys.justPressed.get(key) == JUST_PRESSED_SENTINEL || isKeyJustPressed(key)) {
+                nameInput = nameInput + key.toLowerCase();
                 updateNameField();
                 updateValidationStatus();
+                return;
             }
         }
+        
+        // Números
+        if (FlxG.keys.justPressed.ONE) { nameInput += "1"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.TWO) { nameInput += "2"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.THREE) { nameInput += "3"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.FOUR) { nameInput += "4"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.FIVE) { nameInput += "5"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.SIX) { nameInput += "6"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.SEVEN) { nameInput += "7"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.EIGHT) { nameInput += "8"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.NINE) { nameInput += "9"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.ZERO) { nameInput += "0"; updateNameField(); updateValidationStatus(); return; }
+        
+        // Otros caracteres
+        if (FlxG.keys.justPressed.MINUS) { nameInput += "-"; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.PERIOD) { nameInput += "."; updateNameField(); updateValidationStatus(); return; }
+        if (FlxG.keys.justPressed.SPACE) { nameInput += "_"; updateNameField(); updateValidationStatus(); return; }
     }
+    
+    // Helper para verificar teclas
+    function isKeyJustPressed(key:String):Bool
+    {
+        return Reflect.field(FlxG.keys.justPressed, key) == true;
+    }
+    
+    // Constante sentinel para comparar
+    static inline var JUST_PRESSED_SENTINEL:Bool = true;
 }
 
 // ============== TIPOS DE DATOS ==============
