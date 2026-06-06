@@ -15,7 +15,14 @@ class MainMenuState extends MusicBeatState
 
 	var menuItems:FlxTypedGroup<FlxSprite>;
 
-	var optionShit:Array<String> = ['story_mode', 'freeplay', #if FEATURE_MODS 'mods', #end 'credits', 'options'];
+	var optionShit:Array<String> = ['story_mode', 'freeplay', #if FEATURE_MODS 'mods', #end 'credits', 'options', 'web'];
+	
+	// Para WebView - plataformas desktop y móvil
+	#if (desktop || mobile)
+	static var webViewAvailable:Bool = true;
+	#else
+	static var webViewAvailable:Bool = false;
+	#end
 
 	var magenta:FlxSprite;
 	var camFollow:FlxObject;
@@ -160,6 +167,13 @@ class MainMenuState extends MusicBeatState
 								PlayState.SONG.opponentArrowSkin = null;
 								PlayState.SONG.splashSkin = null;
 								PlayState.stageUI = 'normal';
+							}
+						case 'web':
+							if (webViewAvailable) {
+								Funkin.switchState(WebViewState);
+							} else {
+								// En HTML5, abrir en navegador externo
+								CoolUtil.browserLoad(WebViewState.targetURL);
 							}
 					}
 				});

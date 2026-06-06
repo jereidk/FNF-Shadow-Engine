@@ -94,6 +94,11 @@
       "name": "tink_core",
       "type": "haxelib",
       "version": "1.26.0"
+    },
+    {
+      "name": "HxWebView",
+      "type": "haxelib",
+      "version": "0.0.9"
     }
   ]
 }
