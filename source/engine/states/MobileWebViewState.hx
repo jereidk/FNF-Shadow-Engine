@@ -57,6 +57,7 @@ class MobileWebViewState extends MusicBeatState
     var downloadsBtn:MobileWebButton;
     var importBtn:MobileWebButton;
     var openExtBtn:MobileWebButton;
+    var customImportBtn:MobileWebButton;
     
     // Paneles
     var downloadsPanel:FlxSprite;
@@ -257,6 +258,10 @@ class MobileWebViewState extends MusicBeatState
         // Botón importar al editor
         importBtn = new MobileWebButton(15, FlxG.height - 100, "🎨 Importar al Editor", onImportToEditor, 200, 50, COLOR_SUCCESS);
         add(importBtn);
+        
+        // Botón de importación personalizada
+        customImportBtn = new MobileWebButton(225, FlxG.height - 100, "⚙ Personalizado", openImportDialog, 180, 50, COLOR_ACCENT2);
+        add(customImportBtn);
         
         // Botón abrir externo
         openExtBtn = new MobileWebButton(FlxG.width - 100, FlxG.height - 100, "↗", onOpenExternal, 80, 50, COLOR_ACCENT2);
@@ -462,6 +467,46 @@ class MobileWebViewState extends MusicBeatState
         Funkin.switchState(states.editors.CharacterEditorState);
     }
     
+    // Abrir diálogo de importación personalizado
+    function openImportDialog():Void
+    {
+        if (pendingDownloads.length == 0) {
+            showNotification("No hay archivos para importar", COLOR_WARNING);
+            return;
+        }
+        
+        showNotification("📥 " + pendingDownloads.length + " archivo(s) pendiente(s)", COLOR_ACCENT2);
+        Funkin.switchState(SpriteImportDialog);
+    }
+    
+    // Importar un solo archivo específico
+    function importSingleFile(index:Int):Void
+    {
+        if (index < 0 || index >= pendingDownloads.length) return;
+        
+        var download = pendingDownloads[index];
+        
+        #if mobile
+        try {
+            if (FileSystem.exists(download.path)) {
+                var data:Bytes = File.getBytes(download.path);
+                
+                SpriteImportDialog.pendingImport = {
+                    path: download.path,
+                    data: data,
+                    filename: download.filename
+                };
+                
+                Funkin.switchState(SpriteImportDialog);
+            } else {
+                showNotification("Archivo no encontrado: " + download.filename, COLOR_ERROR);
+            }
+        } catch(e:Dynamic) {
+            showNotification("Error: " + e, COLOR_ERROR);
+        }
+        #end
+    }
+    
     function onOpenExternal():Void
     {
         CoolUtil.browserLoad(targetURL);
@@ -529,6 +574,22 @@ class MobileWebViewState extends MusicBeatState
             }
         } catch(e:Dynamic) {}
         #end
+    }
+    
+    // Mostrar notificación temporal
+    function showNotification(msg:String, color:Int):Void
+    {
+        var notif = new FlxText(0, FlxG.height - 50, FlxG.width, msg, 16);
+        notif.setFormat("VCR OSD Mono", 16, color, CENTER);
+        notif.alpha = 0;
+        add(notif);
+        
+        FlxTween.tween(notif, {alpha: 1}, 0.2);
+        FlxTimer.globalTimer.add(2, function(tmr:FlxTimer) {
+            FlxTween.tween(notif, {alpha: 0}, 0.3, {
+                onComplete: function(_) { remove(notif); }
+            });
+        });
     }
 }
 
